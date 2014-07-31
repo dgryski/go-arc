@@ -26,10 +26,10 @@ func TestARC(t *testing.T) {
 		cache.Get(string(b[:]), func() []byte { return b[:] })
 	}
 
-	checkList(t, "t1", cache.t1, []byte{41})
-	checkList(t, "t2", cache.t2, []byte{11, 17, 16, 32, 33, 34, 35, 36, 37})
-	checkList(t, "b1", cache.b1, []byte{31, 30})
-	checkList(t, "b2", cache.b2, []byte{38, 39, 19, 18, 15, 14, 13, 12})
+	checkList(t, "t1", cache.t1.l, []byte{41})
+	checkList(t, "t2", cache.t2.l, []byte{11, 17, 16, 32, 33, 34, 35, 36, 37})
+	checkList(t, "b1", cache.b1.l, []byte{31, 30})
+	checkList(t, "b2", cache.b2.l, []byte{38, 39, 19, 18, 15, 14, 13, 12})
 
 	if cache.p != 5 {
 		t.Errorf("bad p: got=%v want=5", cache.p)

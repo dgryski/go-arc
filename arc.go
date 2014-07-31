@@ -1,94 +1,114 @@
 // Package arc implements the Adaptive Replacement Cache
 /*
 
-This code is a straight-forward translation of the Python implementation at http://code.activestate.com/recipes/576532-adaptive-replacement-cache-in-python/
+https://www.usenix.org/legacy/events/fast03/tech/full_papers/megiddo/megiddo.pdf
+
+This code is a straight-forward translation of the Python implementation at
+http://code.activestate.com/recipes/576532-adaptive-replacement-cache-in-python/
+modified to make the O(n) list operations O(1).
+
+It is MIT licensed, like the original Python implementation.
 
 */
 package arc
 
-/*
-things to clean up:
-    s/self/cache/
-    b1Keys map[string]*Element
-*/
+import "container/list"
 
-import (
-	"container/list"
-)
-
+// Cache is a type implementing an Adaptive Replacement Cache
 type Cache struct {
 	cached map[string][]byte
 
 	c int
 	p int
 
-	t1 *list.List
-	t2 *list.List
-	b1 *list.List
-	b2 *list.List
+	t1 *clist
+	t2 *clist
+	b1 *clist
+	b2 *clist
 }
 
+func newClist() *clist {
+	return &clist{
+		l:    list.New(),
+		keys: make(map[string]*list.Element),
+	}
+}
+
+type clist struct {
+	l    *list.List
+	keys map[string]*list.Element
+}
+
+func (c *clist) Has(key string) bool {
+	_, ok := c.keys[key]
+	return ok
+}
+
+func (c *clist) RemoveKey(key string) {
+	elt, ok := c.keys[key]
+	if !ok {
+		panic("removing unavailable key")
+	}
+	delete(c.keys, key)
+	c.l.Remove(elt)
+}
+
+func (c *clist) PushFront(key string) {
+	elt := c.l.PushFront(key)
+	c.keys[key] = elt
+}
+
+func (c *clist) RemoveTail() string {
+	elt := c.l.Back()
+	c.l.Remove(elt)
+
+	key := elt.Value.(string)
+	delete(c.keys, key)
+
+	return key
+}
+
+func (c *clist) Len() int {
+	return c.l.Len()
+}
+
+// New creates an ARC that stores at most size items.
 func New(size int) *Cache {
 	return &Cache{
 		cached: make(map[string][]byte),
 		c:      size,
-		t1:     list.New(),
-		t2:     list.New(),
-		b1:     list.New(),
-		b2:     list.New(),
+		t1:     newClist(),
+		t2:     newClist(),
+		b1:     newClist(),
+		b2:     newClist(),
 	}
-}
-
-// to make first draft python translation easier
-// TODO(dgryski): replace these with map[string]*Element to make this O(1) instead of O(n)
-
-func listIn(l *list.List, key string) bool {
-
-	for e := l.Front(); e != nil; e = e.Next() {
-		if e.Value.(string) == key {
-			return true
-		}
-	}
-
-	return false
-}
-
-func listRemove(l *list.List, key string) {
-
-	for e := l.Front(); e != nil; e = e.Next() {
-		if e.Value.(string) == key {
-			l.Remove(e)
-			return
-		}
-	}
-
-	panic("key not found in remove")
 }
 
 func (self *Cache) replace(key string) {
 
 	var old string
-	if (self.t1.Len() > 0 && listIn(self.b2, key) && self.t1.Len() == self.p) || (self.t1.Len() > self.p) {
-		old = self.t1.Remove(self.t1.Back()).(string)
+	if (self.t1.Len() > 0 && self.b2.Has(key) && self.t1.Len() == self.p) || (self.t1.Len() > self.p) {
+		old = self.t1.RemoveTail()
 		self.b1.PushFront(old)
 	} else {
-		old = self.t2.Remove(self.t2.Back()).(string)
+		old = self.t2.RemoveTail()
 		self.b2.PushFront(old)
 	}
 
 	delete(self.cached, old)
 }
 
+// Get retrieves a value from the cache. The function f will be called to retrieve the value if it is not present in the cache.
 func (self *Cache) Get(key string, f func() []byte) []byte {
 
-	if listIn(self.t1, key) {
-		listRemove(self.t1, key)
+	if self.t1.Has(key) {
+		self.t1.RemoveKey(key)
 		self.t2.PushFront(key)
 		return self.cached[key]
 	}
 
-	if listIn(self.t2, key) {
-		listRemove(self.t2, key)
+	if self.t2.Has(key) {
+		self.t2.RemoveKey(key)
 		self.t2.PushFront(key)
 		return self.cached[key]
 	}
@@ -96,35 +116,35 @@ func (self *Cache) Get(key string, f func() []byte) []byte {
 	result := f()
 	self.cached[key] = result
 
-	if listIn(self.b1, key) {
+	if self.b1.Has(key) {
 		self.p = min(self.c, self.p+max(self.b2.Len()/self.b1.Len(), 1))
 		self.replace(key)
-		listRemove(self.b1, key)
+		self.b1.RemoveKey(key)
 		self.t2.PushFront(key)
 		return result
 	}
 
-	if listIn(self.b2, key) {
+	if self.b2.Has(key) {
 		self.p = max(0, self.p-max(self.b1.Len()/self.b2.Len(), 1))
 		self.replace(key)
-		listRemove(self.b2, key)
+		self.b2.RemoveKey(key)
 		self.t2.PushFront(key)
 		return result
 	}
 
 	if self.t1.Len()+self.b1.Len() == self.c {
 		if self.t1.Len() < self.c {
-			self.b1.Remove(self.b1.Back())
+			self.b1.RemoveTail()
 			self.replace(key)
 		} else {
-			pop := self.t1.Remove(self.t1.Back()).(string)
+			pop := self.t1.RemoveTail()
 			delete(self.cached, pop)
 		}
 	} else {
 		total := self.t1.Len() + self.b1.Len() + self.t2.Len() + self.b2.Len()
 		if total >= self.c {
 			if total == (2 * self.c) {
-				self.b2.Remove(self.b2.Back())
+				self.b2.RemoveTail()
 			}
 			self.replace(key)
 		}
