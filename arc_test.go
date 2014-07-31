@@ -31,8 +31,8 @@ func TestARC(t *testing.T) {
 	checkList(t, "b1", cache.b1.l, []byte{31, 30})
 	checkList(t, "b2", cache.b2.l, []byte{38, 39, 19, 18, 15, 14, 13, 12})
 
-	if cache.p != 5 {
-		t.Errorf("bad p: got=%v want=5", cache.p)
+	if cache.part != 5 {
+		t.Errorf("bad p: got=%v want=5", cache.part)
 	}
 }
 

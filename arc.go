@@ -16,10 +16,10 @@ import "container/list"
 
 // Cache is a type implementing an Adaptive Replacement Cache
 type Cache struct {
-	cached map[string][]byte
+	data map[string][]byte
 
-	c int
-	p int
+	cap  int
+	part int
 
 	t1 *clist
 	t2 *clist
@@ -44,18 +44,23 @@ func (c *clist) Has(key string) bool {
 	return ok
 }
 
-func (c *clist) RemoveKey(key string) {
-	elt, ok := c.keys[key]
-	if !ok {
-		panic("removing unavailable key")
-	}
-	delete(c.keys, key)
-	c.l.Remove(elt)
+func (c *clist) Lookup(key string) *list.Element {
+	elt := c.keys[key]
+	return elt
+}
+
+func (c *clist) MoveToFront(elt *list.Element) {
+	c.l.MoveToFront(elt)
 }
 
 func (c *clist) PushFront(key string) {
 	elt := c.l.PushFront(key)
 	c.keys[key] = elt
+}
+
+func (c *clist) Remove(key string, elt *list.Element) {
+	delete(c.keys, key)
+	c.l.Remove(elt)
 }
 
 func (c *clist) RemoveTail() string {
@@ -75,82 +80,82 @@ func (c *clist) Len() int {
 // New creates an ARC that stores at most size items.
 func New(size int) *Cache {
 	return &Cache{
-		cached: make(map[string][]byte),
-		c:      size,
-		t1:     newClist(),
-		t2:     newClist(),
-		b1:     newClist(),
-		b2:     newClist(),
+		data: make(map[string][]byte),
+		cap:  size,
+		t1:   newClist(),
+		t2:   newClist(),
+		b1:   newClist(),
+		b2:   newClist(),
 	}
 }
 
-func (self *Cache) replace(key string) {
+func (c *Cache) replace(key string) {
 
 	var old string
-	if (self.t1.Len() > 0 && self.b2.Has(key) && self.t1.Len() == self.p) || (self.t1.Len() > self.p) {
-		old = self.t1.RemoveTail()
-		self.b1.PushFront(old)
+	if (c.t1.Len() > 0 && c.b2.Has(key) && c.t1.Len() == c.part) || (c.t1.Len() > c.part) {
+		old = c.t1.RemoveTail()
+		c.b1.PushFront(old)
 	} else {
-		old = self.t2.RemoveTail()
-		self.b2.PushFront(old)
+		old = c.t2.RemoveTail()
+		c.b2.PushFront(old)
 	}
 
-	delete(self.cached, old)
+	delete(c.data, old)
 }
 
-// Get retrieves a value from the cache. The function f will be called to retrieve the value if it is not present in the cache.
-func (self *Cache) Get(key string, f func() []byte) []byte {
+// Get retrieves a value from the cache. The function f will be called to
+// retrieve the value if it is not present in the cache.
+func (c *Cache) Get(key string, f func() []byte) []byte {
 
-	if self.t1.Has(key) {
-		self.t1.RemoveKey(key)
-		self.t2.PushFront(key)
-		return self.cached[key]
+	if elt := c.t1.Lookup(key); elt != nil {
+		c.t1.Remove(key, elt)
+		c.t2.PushFront(key)
+		return c.data[key]
 	}
 
-	if self.t2.Has(key) {
-		self.t2.RemoveKey(key)
-		self.t2.PushFront(key)
-		return self.cached[key]
+	if elt := c.t2.Lookup(key); elt != nil {
+		c.t2.MoveToFront(elt)
+		return c.data[key]
 	}
 
 	result := f()
-	self.cached[key] = result
+	c.data[key] = result
 
-	if self.b1.Has(key) {
-		self.p = min(self.c, self.p+max(self.b2.Len()/self.b1.Len(), 1))
-		self.replace(key)
-		self.b1.RemoveKey(key)
-		self.t2.PushFront(key)
+	if elt := c.b1.Lookup(key); elt != nil {
+		c.part = min(c.cap, c.part+max(c.b2.Len()/c.b1.Len(), 1))
+		c.replace(key)
+		c.b1.Remove(key, elt)
+		c.t2.PushFront(key)
 		return result
 	}
 
-	if self.b2.Has(key) {
-		self.p = max(0, self.p-max(self.b1.Len()/self.b2.Len(), 1))
-		self.replace(key)
-		self.b2.RemoveKey(key)
-		self.t2.PushFront(key)
+	if elt := c.b2.Lookup(key); elt != nil {
+		c.part = max(0, c.part-max(c.b1.Len()/c.b2.Len(), 1))
+		c.replace(key)
+		c.b2.Remove(key, elt)
+		c.t2.PushFront(key)
 		return result
 	}
 
-	if self.t1.Len()+self.b1.Len() == self.c {
-		if self.t1.Len() < self.c {
-			self.b1.RemoveTail()
-			self.replace(key)
+	if c.t1.Len()+c.b1.Len() == c.cap {
+		if c.t1.Len() < c.cap {
+			c.b1.RemoveTail()
+			c.replace(key)
 		} else {
-			pop := self.t1.RemoveTail()
-			delete(self.cached, pop)
+			pop := c.t1.RemoveTail()
+			delete(c.data, pop)
 		}
 	} else {
-		total := self.t1.Len() + self.b1.Len() + self.t2.Len() + self.b2.Len()
-		if total >= self.c {
-			if total == (2 * self.c) {
-				self.b2.RemoveTail()
+		total := c.t1.Len() + c.b1.Len() + c.t2.Len() + c.b2.Len()
+		if total >= c.cap {
+			if total == (2 * c.cap) {
+				c.b2.RemoveTail()
 			}
-			self.replace(key)
+			c.replace(key)
 		}
 	}
 
-	self.t1.PushFront(key)
+	c.t1.PushFront(key)
 
 	return result
 }
