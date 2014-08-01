@@ -16,7 +16,7 @@ import "container/list"
 
 // Cache is a type implementing an Adaptive Replacement Cache
 type Cache struct {
-	data map[string][]byte
+	data map[string]interface{}
 
 	cap  int
 	part int
@@ -80,7 +80,7 @@ func (c *clist) Len() int {
 // New creates an ARC that stores at most size items.
 func New(size int) *Cache {
 	return &Cache{
-		data: make(map[string][]byte),
+		data: make(map[string]interface{}),
 		cap:  size,
 		t1:   newClist(),
 		t2:   newClist(),
@@ -105,7 +105,7 @@ func (c *Cache) replace(key string) {
 
 // Get retrieves a value from the cache. The function f will be called to
 // retrieve the value if it is not present in the cache.
-func (c *Cache) Get(key string, f func() []byte) []byte {
+func (c *Cache) Get(key string, f func() interface{}) interface{} {
 
 	if elt := c.t1.Lookup(key); elt != nil {
 		c.t1.Remove(key, elt)

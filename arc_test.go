@@ -23,7 +23,7 @@ func TestARC(t *testing.T) {
 	for _, v := range tst {
 		var b [4]byte
 		binary.LittleEndian.PutUint32(b[:], v)
-		cache.Get(string(b[:]), func() []byte { return b[:] })
+		cache.Get(string(b[:]), func() interface{} { return b[:] })
 	}
 
 	checkList(t, "t1", cache.t1.l, []byte{41})
